@@ -1,0 +1,285 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles enum
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+}
+
+// Market status enum
+enum MarketStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+// Days of week enum
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// Section types enum
+enum SectionType {
+  KEYWORD_SEO
+  ASTROLOGY_LUCK
+  ONLINE_PLAY
+  LIVE_RESULTS
+  NOTICE_BOARD
+  MARKET_ARTICLES
+  LATEST_RESULTS
+  INFO_MARQUEE
+  STARLINE_GAMES
+  BAZAR_36
+  BAZAR_48
+  LINK_SECTION_1
+  LINK_SECTION_2
+  WEEKLY_TIPS_PATTI
+  WEEKLY_TIPS_LINE
+  WEEKLY_TIPS_JODI
+  FREE_GAME_ZONE
+  USER_CONTENT
+  CHARTS
+  FAQ
+  MARKET_TIMETABLE
+  QA_SECTION
+  DISCLAIMER
+}
+
+// Content block types enum
+enum ContentBlockType {
+  TEXT
+  HTML
+  JSON
+  IMAGE
+  LINK
+}
+
+// Result format enum
+enum ResultFormat {
+  SINGLE // xxx-x
+  DOUBLE // xxx-xx-xxx
+  NO_RESULT // *--***
+}
+
+// Account status enum
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+// Theme component enum
+enum ThemeComponent {
+  PRIMARY
+  SECONDARY
+  ACCENT
+  BACKGROUND
+  SURFACE
+  TEXT_PRIMARY
+  TEXT_SECONDARY
+  SUCCESS
+  WARNING
+  ERROR
+  INFO
+}
+
+// Models
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  password    String
+  role        UserRole     @default(ADMIN)
+  status      AccountStatus @default(ACTIVE)
+  lastLogin   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  sessions    Session[]
+  accounts    Account[]
+  activities  ActivityLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Market {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  displayName String
+  status      MarketStatus @default(ACTIVE)
+  openTime    String       // HH:mm format
+  closeTime   String       // HH:mm format
+  resultTime  String       // HH:mm format
+  operatingDays DayOfWeek[] // Days when market operates
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  results     MarketResult[]
+  activities  ActivityLog[]
+
+  @@map("markets")
+}
+
+model MarketResult {
+  id          String      @id @default(cuid())
+  marketId    String
+  date        DateTime    @db.Date
+  openResult  String?     // Format: xxx-x or xxx-xx-xxx
+  closeResult String?     // Format: xxx-x or xxx-xx-xxx
+  status      ResultFormat @default(SINGLE)
+  isPublished Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  market      Market      @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  activities  ActivityLog[]
+
+  @@unique([marketId, date])
+  @@map("market_results")
+}
+
+model Section {
+  id          String      @id @default(cuid())
+  type        SectionType @unique
+  name        String
+  title       String
+  isEnabled   Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  settings    Json?       // Additional settings as JSON
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  contentBlocks ContentBlock[]
+
+  @@map("sections")
+}
+
+model ContentBlock {
+  id        String          @id @default(cuid())
+  sectionId String
+  type      ContentBlockType
+  key       String          // Unique key for the content block
+  title     String?
+  content   String          // The actual content (text, HTML, JSON, etc.)
+  metadata  Json?           // Additional metadata (styles, links, etc.)
+  sortOrder Int             @default(0)
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Relations
+  section   Section         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, key])
+  @@map("content_blocks")
+}
+
+model ThemeSetting {
+  id        String        @id @default(cuid())
+  component ThemeComponent @unique
+  value     String        // Hex color code or CSS value
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("theme_settings")
+}
+
+model CacheKey {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   // JSON string of cached data
+  ttl       Int      // Time to live in seconds
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cache_keys")
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  marketId    String?
+  resultId    String?
+  action      String   // Action performed
+  details     Json?    // Additional details
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  market      Market?      @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  result      MarketResult? @relation(fields: [resultId], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
