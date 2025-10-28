@@ -19,7 +19,9 @@ import {
   Bell,
   Search,
   User,
-  Activity
+  Activity,
+  Cog,
+  LayoutGrid
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -44,8 +46,28 @@ const navigation = [
     icon: FileText,
   },
   {
+    name: 'Results History',
+    href: '/admin/results/history',
+    icon: FileText,
+  },
+  {
     name: 'Content',
     href: '/admin/content',
+    icon: FileText,
+  },
+  {
+    name: 'Pages Builder',
+    href: '/admin/pages-builder',
+    icon: LayoutGrid,
+  },
+  {
+    name: 'Weekly Jodi',
+    href: '/admin/weekly-jodi',
+    icon: FileText,
+  },
+  {
+    name: 'Date Fix',
+    href: '/admin/date-fix',
     icon: FileText,
   },
   {
@@ -57,6 +79,11 @@ const navigation = [
     name: 'Theme',
     href: '/admin/theme',
     icon: Palette,
+  },
+  {
+    name: 'System Settings',
+    href: '/admin/system-settings',
+    icon: Cog,
   },
   {
     name: 'Users',
@@ -72,6 +99,11 @@ const navigation = [
     name: 'Database',
     href: '/admin/database',
     icon: Database,
+  },
+  {
+    name: 'Bulk Import',
+    href: '/admin/bulk-import',
+    icon: FileText,
   },
 ]
 
@@ -92,13 +124,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-4">
+      <nav className="flex-1 overflow-y-auto space-y-1 p-4">
         {navigation.map((item) => {
           const isActive = pathname === item.href
           return (
             <Link
               key={item.name}
               href={item.href}
+              prefetch={item.href === '/admin/content' ? false : true}
               onClick={() => setSidebarOpen(false)}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
@@ -110,8 +143,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <item.icon className="h-4 w-4" />
               {item.name}
             </Link>
-          )
-        })}
+          )}
+        )}
       </nav>
 
       {/* User section */}
@@ -143,7 +176,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   )
 
   return (
-    <div className="h-screen flex bg-background">
+    <div className="min-h-screen flex bg-background overflow-x-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:flex lg:w-64 lg:flex-col lg:border-r">
         <SidebarContent />
@@ -159,15 +192,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Header */}
-        <header className="h-16 border-b flex items-center justify-between px-4 lg:px-6">
+        <header className="h-16 border-b flex items-center justify-between px-3 sm:px-4 md:px-6">
           <div className="flex items-center gap-4">
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="sm" className="lg:hidden">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-            </Sheet>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
 
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold">
@@ -187,7 +222,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
           {children}
         </main>
       </div>

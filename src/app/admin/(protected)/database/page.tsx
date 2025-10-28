@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getCurrentUser } from '@/lib/auth-server'
 import { prisma } from '@/lib/prisma'
+import { DatabaseActions } from '@/components/admin/database/DatabaseActions'
 
 export default async function DatabasePage() {
   await getCurrentUser()
@@ -54,7 +55,7 @@ export default async function DatabasePage() {
         <Card>
           <CardHeader>
             <CardTitle>Content Blocks</CardTitle>
-            <CardDescription>Structured content records</CardDescription>
+            <CardDescription>All content blocks</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{contentBlockCount}</div>
@@ -63,14 +64,24 @@ export default async function DatabasePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Market Results</CardTitle>
-            <CardDescription>Total result entries</CardDescription>
+            <CardTitle>Results</CardTitle>
+            <CardDescription>Total market results</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{resultCount}</div>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Admin Actions</CardTitle>
+          <CardDescription>Reset and seed data for testing and setup</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DatabaseActions />
+        </CardContent>
+      </Card>
     </div>
   )
 }

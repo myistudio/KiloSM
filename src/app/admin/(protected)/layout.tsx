@@ -1,5 +1,6 @@
 import { AdminLayout } from '@/components/admin/AdminLayout'
-import { requireAdmin } from '@/lib/auth-server'
+import { requireAdmin, getServerSession } from '@/lib/auth-server'
+import { SessionProvider } from '@/components/providers/SessionProvider'
 
 export default async function Layout({
   children,
@@ -9,5 +10,11 @@ export default async function Layout({
   // This will throw and redirect if not authenticated
   await requireAdmin()
 
-  return <AdminLayout>{children}</AdminLayout>
+  const session = await getServerSession()
+
+  return (
+    <SessionProvider session={session}>
+      <AdminLayout>{children}</AdminLayout>
+    </SessionProvider>
+  )
 }

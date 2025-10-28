@@ -47,6 +47,11 @@ const marketSchema = z.object({
   descriptionLink: z.string().min(1, 'Provide a link for Market Description'),
   jodiChartLink: z.string().min(1, 'Provide a link for Jodi Chart'),
   panelChartLink: z.string().min(1, 'Provide a link for Panel Chart'),
+  // Highlight fields
+  isHighlighted: z.boolean().optional(),
+  highlightMessage: z.string().optional(),
+  highlightActionText: z.string().optional(),
+  highlightActionUrl: z.string().optional(),
 })
 
 type MarketFormData = z.infer<typeof marketSchema>
@@ -67,6 +72,11 @@ interface Market {
     jodi: string
     panel: string
   }
+  // Highlight fields
+  isHighlighted?: boolean
+  highlightMessage?: string | null
+  highlightActionText?: string | null
+  highlightActionUrl?: string | null
 }
 
 interface MarketFormProps {
@@ -105,6 +115,11 @@ export function MarketForm({ children, market }: MarketFormProps) {
       descriptionLink: market?.pageLinks?.description || '',
       jodiChartLink: market?.pageLinks?.jodi || '',
       panelChartLink: market?.pageLinks?.panel || '',
+      // Highlight defaults
+      isHighlighted: market?.isHighlighted ?? false,
+      highlightMessage: market?.highlightMessage ?? '',
+      highlightActionText: market?.highlightActionText ?? '',
+      highlightActionUrl: market?.highlightActionUrl ?? '',
     },
   })
 
@@ -139,10 +154,12 @@ export function MarketForm({ children, market }: MarketFormProps) {
         panel: (data.panelChartLink?.trim()) || `/${slugName}-PANEL-CHART`,
       }
 
+      const isEditing = !!market?.id
       const res = await fetch('/api/admin/markets', {
-        method: 'POST',
+        method: isEditing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...(isEditing ? { id: market!.id } : {}),
           name: data.name,
           displayName: data.displayName,
           openTime: data.openTime,
@@ -153,16 +170,19 @@ export function MarketForm({ children, market }: MarketFormProps) {
           descriptionLink: pages.description,
           jodiChartLink: pages.jodi,
           panelChartLink: pages.panel,
+          // Highlight fields
+          isHighlighted: !!data.isHighlighted,
+          highlightMessage: (data.highlightMessage || '').trim() || null,
+          highlightActionText: (data.highlightActionText || '').trim() || null,
+          highlightActionUrl: (data.highlightActionUrl || '').trim() || null,
         }),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || `Failed to save market (${res.status})`)
+        throw new Error(err.error || `Failed to ${isEditing ? 'update' : 'save'} market (${res.status})`)
       }
 
-      // const json = await res.json()
-      // Optionally update local state or refetch table
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('markets:updated'))
       }
@@ -335,6 +355,67 @@ export function MarketForm({ children, market }: MarketFormProps) {
                             field.onChange(e)
                           }}
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Highlight Settings */}
+            <div className="space-y-2">
+              <Label className="text-base">Highlight Settings</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="isHighlighted"
+                  render={({ field }: { field: any }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 col-span-2">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Highlight Market</FormLabel>
+                        <div className="text-sm text-muted-foreground">Show yellow background on frontend card</div>
+                      </div>
+                      <FormControl>
+                        <Checkbox checked={!!field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="highlightMessage"
+                  render={({ field }: { field: any }) => (
+                    <FormItem>
+                      <FormLabel>Highlight Message</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Custom message shown below timings" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="highlightActionText"
+                  render={({ field }: { field: any }) => (
+                    <FormItem>
+                      <FormLabel>Action Button Text</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. View Details" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="highlightActionUrl"
+                  render={({ field }: { field: any }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>Action Button Link URL</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://example.com/details" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

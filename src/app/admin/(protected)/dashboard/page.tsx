@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth-server'
+import { headers } from 'next/headers'
 
 async function getDashboardStats() {
   const [
@@ -48,6 +49,74 @@ async function getDashboardStats() {
     })
   ])
 
+  // Pending results via admin API (same logic as results page)
+  const hdrs = await headers()
+  const cookie = hdrs.get('cookie') || ''
+  const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || 'localhost:3001'
+  const proto = hdrs.get('x-forwarded-proto') || 'http'
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`)
+  let pendingResults = 0
+  try {
+    const pendingResp = await fetch(`${origin}/api/admin/results?filter=pending`, { cache: 'no-store', headers: { cookie } })
+    if (pendingResp.ok) {
+      const pendingJson = await pendingResp.json()
+      pendingResults = Array.isArray(pendingJson.results) ? pendingJson.results.length : 0
+    }
+  } catch (e) {
+    pendingResults = 0
+  }
+
+  // Compute next result time (IST)
+  const fmtDay = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long' })
+  const dayEnum = fmtDay.format(new Date()).toUpperCase()
+
+  const activeToday = await prisma.market.findMany({
+    where: { isActive: true, operatingDays: { has: dayEnum as any } },
+    select: { name: true, displayName: true, openTime: true, closeTime: true, resultTime: true, sortOrder: true },
+    orderBy: { sortOrder: 'asc' },
+  })
+
+  const fmtTime = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' })
+  const nowStr = fmtTime.format(new Date())
+  const [h, m] = nowStr.split(':').map((s) => parseInt(s, 10))
+  const nowMin = h * 60 + m
+  const toMin = (hhmm?: string | null) => {
+    if (!hhmm) return Number.POSITIVE_INFINITY
+    const [hh, mm] = hhmm.split(':').map((s) => parseInt(s, 10))
+    return hh * 60 + mm
+  }
+
+  let nextResultMarket = ''
+  let nextResultTime = ''
+
+  // Only consider result times for "Next Result Time"; fall back handled below
+  const upcomingRes = activeToday
+    .map((mk) => ({ mk, rm: toMin(mk.resultTime) }))
+    .filter((x) => x.rm > nowMin)
+    .sort((a, b) => (a.rm - b.rm))
+
+  if (upcomingRes.length > 0) {
+    const pick = upcomingRes[0]
+    nextResultMarket = (pick.mk.displayName || pick.mk.name || '').toUpperCase()
+    nextResultTime = pick.mk.resultTime || ''
+  } else if (activeToday.length > 0) {
+    const pick = activeToday[0]
+    nextResultMarket = (pick.displayName || pick.name || '').toUpperCase()
+    // Fallback: if no market has a future resultTime, use first available resultTime or closeTime
+    nextResultTime = pick.resultTime || pick.closeTime || ''
+  }
+
+  // Build schedule for display: sorted by resultTime, falling back to closeTime
+  const schedule = activeToday
+    .map((mk) => ({
+      name: mk.displayName || mk.name,
+      open: mk.openTime,
+      close: mk.closeTime,
+      result: mk.resultTime || '',
+      sortKey: toMin(mk.resultTime || mk.closeTime),
+    }))
+    .sort((a, b) => a.sortKey - b.sortKey)
+
   return {
     totalMarkets,
     activeMarkets,
@@ -56,7 +125,11 @@ async function getDashboardStats() {
     totalSections,
     activeSections,
     totalUsers,
-    recentActivity
+    recentActivity,
+    pendingResults,
+    nextResultMarket,
+    nextResultTime,
+    schedule,
   }
 }
 
@@ -114,7 +187,7 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -156,7 +229,7 @@ export default async function AdminDashboardPage() {
                       {activity.action}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      by {activity.user?.name || 'Unknown'} • {activity.createdAt.toLocaleTimeString()}
+                      by {activity.user?.name || 'Unknown'} • <span suppressHydrationWarning>{new Date(activity.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                     </p>
                   </div>
                 </div>
@@ -211,19 +284,35 @@ export default async function AdminDashboardPage() {
                 <Clock className="h-4 w-4" />
                 <span className="font-medium">Next Result Time:</span>
               </div>
-              <Badge variant="secondary">14:30 (Kalyan)</Badge>
+              <Badge variant="secondary">{stats.nextResultTime} ({stats.nextResultMarket})</Badge>
             </div>
+            {/* Today’s Markets by Result Time */}
+            {stats.schedule && stats.schedule.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Today’s Markets (by result time)</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {stats.schedule.map((s: any) => (
+                    <div key={`${s.name}-${s.open}-${s.close}`} className="flex items-center justify-between p-2 border rounded-lg">
+                      <div className="text-sm font-medium">{s.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Open: {s.open} • Close: {s.close} • Result: {s.result || '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid gap-2 md:grid-cols-3">
               <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-green-600">12</div>
+                <div className="text-2xl font-bold text-green-600">{stats.activeMarkets}</div>
                 <div className="text-sm text-muted-foreground">Active Markets</div>
               </div>
               <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">8</div>
+                <div className="text-2xl font-bold text-blue-600">{stats.todayResults}</div>
                 <div className="text-sm text-muted-foreground">Results Today</div>
               </div>
               <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">3</div>
+                <div className="text-2xl font-bold text-orange-600">{stats.pendingResults}</div>
                 <div className="text-sm text-muted-foreground">Pending Results</div>
               </div>
             </div>

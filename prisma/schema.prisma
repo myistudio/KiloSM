@@ -146,65 +146,6 @@ model Account {
   @@map("accounts")
 }
 
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sessions")
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-  @@map("verification_tokens")
-}
-
-model Market {
-  id          String       @id @default(cuid())
-  name        String       @unique
-  displayName String
-  status      MarketStatus @default(ACTIVE)
-  openTime    String       // HH:mm format
-  closeTime   String       // HH:mm format
-  resultTime  String       // HH:mm format
-  operatingDays DayOfWeek[] // Days when market operates
-  isActive    Boolean      @default(true)
-  sortOrder   Int          @default(0)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  // Relations
-  results     MarketResult[]
-  activities  ActivityLog[]
-
-  @@map("markets")
-}
-
-model MarketResult {
-  id          String      @id @default(cuid())
-  marketId    String
-  date        DateTime    @db.Date
-  openResult  String?     // Format: xxx-x or xxx-xx-xxx
-  closeResult String?     // Format: xxx-x or xxx-xx-xxx
-  status      ResultFormat @default(SINGLE)
-  isPublished Boolean     @default(false)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  // Relations
-  market      Market      @relation(fields: [marketId], references: [id], onDelete: Cascade)
-  activities  ActivityLog[]
-
-  @@unique([marketId, date])
-  @@map("market_results")
-}
-
 model Section {
   id          String      @id @default(cuid())
   type        SectionType @unique
@@ -218,6 +159,8 @@ model Section {
 
   // Relations
   contentBlocks ContentBlock[]
+  // New: page-section assignments for reusable modules across pages
+  pageSections  PageSection[]
 
   @@map("sections")
 }
@@ -240,6 +183,9 @@ model ContentBlock {
 
   @@unique([sectionId, key])
   @@map("content_blocks")
+  @@index([sectionId, sortOrder])
+  @@index([sectionId, isActive])
+  @@index([createdAt])
 }
 
 model ThemeSetting {
@@ -265,6 +211,16 @@ model CacheKey {
   @@map("cache_keys")
 }
 
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   // JSON-serialized setting value
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
 model ActivityLog {
   id          String   @id @default(cuid())
   userId      String?
@@ -279,7 +235,124 @@ model ActivityLog {
   // Relations
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   market      Market?      @relation(fields: [marketId], references: [id], onDelete: SetNull)
-  result      MarketResult? @relation(fields: [resultId], references: [id], onDelete: SetNull)
-
+  result      MarketResult? @relation("MarketResultActivities", fields: [resultId], references: [id], onDelete: SetNull)
+  
   @@map("activity_logs")
+  @@index([userId])
+  @@index([marketId])
+  @@index([resultId])
+  @@index([createdAt])
+}
+
+// Authentication sessions for NextAuth
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  sessionToken  String   @unique
+  expires       DateTime
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Markets
+model Market {
+  id             String       @id @default(cuid())
+  name           String       @unique
+  displayName    String
+  status         MarketStatus @default(ACTIVE)
+  openTime       String
+  closeTime      String
+  resultTime     String?
+  operatingDays  DayOfWeek[]
+  isActive       Boolean      @default(true)
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Highlighting fields
+  isHighlighted       Boolean   @default(false)
+  highlightMessage    String?
+  highlightActionText String?
+  highlightActionUrl  String?
+
+  // Relations
+  results        MarketResult[]
+  activities     ActivityLog[]
+
+  @@map("markets")
+  @@index([isActive])
+  @@index([sortOrder])
+  @@index([status])
+}
+
+// Market results
+model MarketResult {
+  id           String    @id @default(cuid())
+  marketId     String
+  date         DateTime
+  openResult   String?
+  closeResult  String?
+  status       String?
+  isPublished  Boolean   @default(false)
+  color        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  market       Market    @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  activities   ActivityLog[] @relation("MarketResultActivities")
+
+  @@unique([marketId, date])
+  @@map("market_results")
+  @@index([marketId])
+  @@index([date, createdAt])
+}
+
+// New: Pages and PageSection assignment models
+model Page {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?
+  isEnabled   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // SEO fields
+  metaTitle       String?
+  metaDescription String?
+  canonicalUrl    String?
+  ogImageUrl      String?
+  twitterCard     String? // e.g. "summary", "summary_large_image"
+  robotsNoIndex   Boolean  @default(false)
+  robotsNoFollow  Boolean  @default(false)
+  h1              String?
+  seoSchema       Json?    // JSON-LD structured data
+
+  // Relations
+  sections    PageSection[]
+
+  @@map("pages")
+}
+
+model PageSection {
+  id               String   @id @default(cuid())
+  pageId           String
+  sectionId        String
+  sortOrder        Int      @default(0)
+  isEnabled        Boolean  @default(true)
+  customTitle      String?
+  customDescription String?
+  localSettings    Json?
+
+  // Relations
+  page             Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  section          Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, sectionId])
+  @@map("page_sections")
+  @@index([pageId, sortOrder])
+  @@index([sectionId])
 }

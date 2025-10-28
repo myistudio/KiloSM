@@ -1,6 +1,6 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -36,106 +36,178 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { Checkbox } from '@/components/ui/checkbox'
 
-// Result validation schemas
-const singleResultSchema = z.object({
-  openResult: z.string()
-    .regex(/^\d{3}-\d{1}$/, 'Open result must be in format: 123-4')
-    .optional()
-    .or(z.literal('')),
-  closeResult: z.string()
-    .regex(/^\d{3}-\d{1}$/, 'Close result must be in format: 123-4')
-    .optional()
-    .or(z.literal('')),
-})
-
-const doubleResultSchema = z.object({
-  openResult: z.string()
-    .regex(/^\d{3}-\d{2}-\d{3}$/, 'Open result must be in format: 123-45-678')
-    .optional()
-    .or(z.literal('')),
-  closeResult: z.string()
-    .regex(/^\d{3}-\d{2}-\d{3}$/, 'Close result must be in format: 123-45-678')
-    .optional()
-    .or(z.literal('')),
-})
-
-const noResultSchema = z.object({
-  status: z.literal('NO_RESULT'),
-})
-
-const resultSchema = z.discriminatedUnion('resultType', [
-  z.object({
-    resultType: z.literal('SINGLE'),
-    ...singleResultSchema.shape,
-  }),
-  z.object({
-    resultType: z.literal('DOUBLE'),
-    ...doubleResultSchema.shape,
-  }),
-  z.object({
-    resultType: z.literal('NO_RESULT'),
-    ...noResultSchema.shape,
-  }),
-]).and(z.object({
+// Remove discriminated union and define a flat schema that does not require resultType.
+const resultSchema = z.object({
   marketId: z.string().min(1, 'Please select a market'),
   date: z.date(),
-}))
+  openResult: z.string()
+    .regex(/^(\d{3}-\d{1})?$/, 'Open result must be in format: 123-4')
+    .optional()
+    .or(z.literal('')),
+  closeResult: z.string()
+    .regex(/^(\d{3}-\d{1})?$/, 'Close result must be in format: 123-4')
+    .optional()
+    .or(z.literal('')),
+  color: z.enum(['RED', 'BLACK']).optional(),
+})
 
 type ResultFormData = z.infer<typeof resultSchema>
-
-// Mock markets data
-const mockMarkets = [
-  { id: '1', name: 'KALYAN', displayName: 'Kalyan Morning' },
-  { id: '2', name: 'MILAN_DAY', displayName: 'Milan Day' },
-  { id: '3', name: 'RAJDHANI_NIGHT', displayName: 'Rajdhani Night' },
-]
 
 interface ResultEntryFormProps {
   children: React.ReactNode
   marketId?: string
   date?: Date
+  // Support editing existing results
+  resultId?: string
+  initialOpenResult?: string | null
+  initialCloseResult?: string | null
+  // When provided, restrict UI to only open or only close entry
+  entryType?: 'open' | 'close'
 }
 
-export function ResultEntryForm({ children, marketId, date }: ResultEntryFormProps) {
+function sumDigitsMod10(triple: string) {
+  if (!/^\d{3}$/.test(triple)) return ''
+  const s = triple.split('').reduce((acc, d) => acc + Number(d), 0)
+  return String(s % 10)
+}
+
+function todayDayEnum(): string {
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY']
+  return days[new Date().getDay()]
+}
+
+export function ResultEntryForm({ children, marketId, date, resultId, initialOpenResult, initialCloseResult, entryType }: ResultEntryFormProps) {
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [resultType, setResultType] = useState<'SINGLE' | 'DOUBLE' | 'NO_RESULT'>('SINGLE')
+  // Removed resultType state
+  // const [resultType, setResultType] = useState<'SINGLE' | 'DOUBLE' | 'NO_RESULT'>('SINGLE')
+  const [markets, setMarkets] = useState<Array<{ id: string; name?: string; displayName: string; isActive: boolean; operatingDays: string[]; openTime: string; closeTime: string }>>([])
+
+  // Digit inputs state: 3-2-3 layout
+  const [openTripleDigits, setOpenTripleDigits] = useState<string[]>(['', '', ''])
+  const [closeTripleDigits, setCloseTripleDigits] = useState<string[]>(['', '', ''])
+  const openRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
+  const closeRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
+  const openTriple = useMemo(() => openTripleDigits.join(''), [openTripleDigits])
+  const closeTriple = useMemo(() => closeTripleDigits.join(''), [closeTripleDigits])
+  const openSingle = useMemo(() => sumDigitsMod10(openTriple), [openTriple])
+  const closeSingle = useMemo(() => sumDigitsMod10(closeTriple), [closeTriple])
+  const jodi = useMemo(() => (openSingle && closeSingle ? `${openSingle}${closeSingle}` : ''), [openSingle, closeSingle])
 
   const form = useForm<ResultFormData>({
     resolver: zodResolver(resultSchema),
     defaultValues: {
-      resultType: 'SINGLE',
+      // Removed resultType default
+      // resultType: 'SINGLE',
       marketId: marketId || '',
       date: date || new Date(),
       openResult: '',
       closeResult: '',
-    },
+      color: 'BLACK',
+    } as any,
   })
 
-  const currentResultType = form.watch('resultType')
+  // Removed currentResultType watcher
+  // const currentResultType = form.watch('resultType')
+
+  // Fetch real markets (active and operating today)
+  useEffect(() => {
+    async function loadMarkets() {
+      try {
+        const res = await fetch('/api/admin/markets')
+        const data = await res.json()
+        const today = todayDayEnum()
+        const all = (data.markets || [])
+        // For new entries, show only active markets operating today; for editing existing entries, include all markets
+        const filtered = resultId
+          ? all
+          : all.filter((m: any) => m.isActive && (m.operatingDays || []).includes(today))
+        filtered.sort((a: any, b: any) => (a.openTime || '').localeCompare(b.openTime || ''))
+        setMarkets(filtered)
+      } catch (e) {
+        console.error('Failed to load markets', e)
+      }
+    }
+    loadMarkets()
+  }, [])
+
+  // Keep form's openResult/closeResult in sync with digits (auto after entering digits)
+  useEffect(() => {
+    const openRes = /^\d{3}$/.test(openTriple) && openSingle ? `${openTriple}-${openSingle}` : ''
+    const closeRes = /^\d{3}$/.test(closeTriple) && closeSingle ? `${closeTriple}-${closeSingle}` : ''
+    form.setValue('openResult', openRes)
+    form.setValue('closeResult', closeRes)
+  }, [openTriple, closeTriple, openSingle, closeSingle, form])
+
+  // Prefill digits when dialog opens for editing
+  function parseHalfPanna(val?: string | null): { triple: string | null, single: string | null } {
+    if (!val) return { triple: null, single: null }
+    const m = val.match(/^(\d{3})-(\d)$/)
+    if (!m) return { triple: null, single: null }
+    return { triple: m[1], single: m[2] }
+  }
+
+  useEffect(() => {
+    if (open) {
+      // market and date defaults
+      if (marketId) form.setValue('marketId', marketId)
+      if (date) form.setValue('date', date)
+
+      const openParsed = parseHalfPanna(initialOpenResult || undefined)
+      const closeParsed = parseHalfPanna(initialCloseResult || undefined)
+      if (openParsed.triple) {
+        setOpenTripleDigits(openParsed.triple.split(''))
+      }
+      if (closeParsed.triple) {
+        setCloseTripleDigits(closeParsed.triple.split(''))
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const onSubmit = async (data: ResultFormData) => {
     setIsLoading(true)
     try {
-      console.log('Saving result:', data)
+      const payloadBase = {
+        marketId: data.marketId,
+        date: data.date,
+        openResult: data.openResult || null,
+        closeResult: data.closeResult || null,
+        color: data.color || null,
+      }
+      const inferredStatus = payloadBase.openResult || payloadBase.closeResult ? 'SINGLE' : 'NO_RESULT'
 
-      // Calculate jodi and panel automatically
-      const calculations = calculateJodiAndPanel(data)
-
-      // Here you would make an API call to save the result
-      const resultData = {
-        ...data,
-        ...calculations,
+      let res: Response
+      if (resultId) {
+        res = await fetch('/api/admin/results', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: resultId, ...payloadBase, status: inferredStatus, isPublished: inferredStatus !== 'NO_RESULT' }),
+        })
+      } else {
+        res = await fetch('/api/admin/results', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payloadBase, status: inferredStatus, isPublished: inferredStatus !== 'NO_RESULT' }),
+        })
       }
 
-      console.log('Result with calculations:', resultData)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to save result')
+      }
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Notify lists to reload
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('admin-results:refresh'))
+      }
 
       setOpen(false)
       form.reset()
+      setOpenTripleDigits(['', '', ''])
+      setCloseTripleDigits(['', '', ''])
     } catch (error) {
       console.error('Error saving result:', error)
     } finally {
@@ -143,31 +215,18 @@ export function ResultEntryForm({ children, marketId, date }: ResultEntryFormPro
     }
   }
 
-  const calculateJodiAndPanel = (data: ResultFormData) => {
-    // Auto-calculation logic for jodi and panel
-    const calculations: { jodi?: string; panel?: string } = {}
-
-    if (data.resultType === 'SINGLE' && data.closeResult) {
-      const closeDigits = data.closeResult.replace(/[-\s]/g, '')
-      if (closeDigits.length >= 3) {
-        calculations.jodi = `${closeDigits[1]}${closeDigits[2]}`
-        calculations.panel = `${closeDigits[0]}${closeDigits[1]}${closeDigits[2]}`
-      }
-    }
-
-    return calculations
-  }
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
-          <DialogTitle>Enter Result</DialogTitle>
+          <DialogTitle>
+            {resultId ? 'Update Result' : entryType === 'open' ? 'Enter Open Result' : entryType === 'close' ? 'Enter Close Result' : 'Enter Result'}
+          </DialogTitle>
           <DialogDescription>
-            Enter result for the selected market and date. Results will be auto-calculated.
+            Enter 3-2-3 digits; single digits and jodi will be auto-calculated.
           </DialogDescription>
         </DialogHeader>
 
@@ -187,9 +246,9 @@ export function ResultEntryForm({ children, marketId, date }: ResultEntryFormPro
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {mockMarkets.map((market) => (
+                        {markets.map((market) => (
                           <SelectItem key={market.id} value={market.id}>
-                            {market.displayName} ({market.name})
+                            {market.displayName} {market.openTime ? `(${market.openTime}-${market.closeTime})` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -218,9 +277,10 @@ export function ResultEntryForm({ children, marketId, date }: ResultEntryFormPro
                             {field.value ? (
                               format(field.value, 'PPP')
                             ) : (
-                              <span>Pick a date</span>
+                              <span className="flex items-center">
+                                <CalendarIcon className="mr-2 h-4 w-4" /> Pick a date
+                              </span>
                             )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                           </Button>
                         </FormControl>
                       </PopoverTrigger>
@@ -229,9 +289,6 @@ export function ResultEntryForm({ children, marketId, date }: ResultEntryFormPro
                           mode="single"
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date: Date) =>
-                            date > new Date() || date < new Date('1900-01-01')
-                          }
                           initialFocus
                         />
                       </PopoverContent>
@@ -242,98 +299,122 @@ export function ResultEntryForm({ children, marketId, date }: ResultEntryFormPro
               />
             </div>
 
-            <FormField
-              control={form.control}
-              name="resultType"
-              render={({ field }: { field: any }) => (
-                <FormItem>
-                  <FormLabel>Result Type</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select result type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="SINGLE">Single (123-4)</SelectItem>
-                      <SelectItem value="DOUBLE">Double (123-45-678)</SelectItem>
-                      <SelectItem value="NO_RESULT">No Result (*--***)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {currentResultType !== 'NO_RESULT' && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="openResult"
-                    render={({ field }: { field: any }) => (
-                      <FormItem>
-                        <FormLabel>Open Result</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder={
-                              currentResultType === 'SINGLE' ? '123-4' : '123-45-678'
-                            }
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="closeResult"
-                    render={({ field }: { field: any }) => (
-                      <FormItem>
-                        <FormLabel>Close Result</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder={
-                              currentResultType === 'SINGLE' ? '123-4' : '123-45-678'
-                            }
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                {/* Auto-calculation preview */}
-                <div className="p-4 bg-muted rounded-lg">
-                  <h4 className="font-medium mb-2">Auto-Calculations</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Jodi:</span>
-                      <span className="ml-2 font-mono">45</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Panel:</span>
-                      <span className="ml-2 font-mono">123</span>
-                    </div>
+            <div className="space-y-4">
+              {(entryType === undefined || entryType === 'open') && (
+                <div>
+                  <Label>Open Triple</Label>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {openRefs.map((ref, idx) => (
+                      <Input
+                        key={idx}
+                        ref={ref}
+                        value={openTripleDigits[idx]}
+                        maxLength={1}
+                        inputMode="numeric"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '')
+                          setOpenTripleDigits((prev) => {
+                            const next = [...prev]
+                            next[idx] = val
+                            return next
+                          })
+                          if (val && idx < openRefs.length - 1) {
+                            openRefs[idx + 1].current?.focus()
+                          }
+                        }}
+                      />
+                    ))}
                   </div>
                 </div>
-              </>
+              )}
+
+              {(entryType === undefined || entryType === 'close') && (
+                <div>
+                  <Label>Close Triple</Label>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {closeRefs.map((ref, idx) => (
+                      <Input
+                        key={idx}
+                        ref={ref}
+                        value={closeTripleDigits[idx]}
+                        maxLength={1}
+                        inputMode="numeric"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '')
+                          setCloseTripleDigits((prev) => {
+                            const next = [...prev]
+                            next[idx] = val
+                            return next
+                          })
+                          if (val && idx < closeRefs.length - 1) {
+                            closeRefs[idx + 1].current?.focus()
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className={entryType ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-2 gap-4'}>
+              {(entryType === undefined || entryType === 'open') && (
+                <FormField
+                  control={form.control}
+                  name="openResult"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Open Result</FormLabel>
+                      <FormControl>
+                        <Input placeholder="123-4" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {(entryType === undefined || entryType === 'close') && (
+                <FormField
+                  control={form.control}
+                  name="closeResult"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Close Result</FormLabel>
+                      <FormControl>
+                        <Input placeholder="456-5" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
+
+            {(entryType === undefined || entryType === 'close') && (
+              <div className="flex items-center gap-3">
+                <FormField
+                  control={form.control}
+                  name="color"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={field.value === 'RED'}
+                          onCheckedChange={(checked) => field.onChange(checked ? 'RED' : 'BLACK')}
+                        />
+                        <FormLabel>Mark Close as Red</FormLabel>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             )}
 
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Saving...' : 'Save Result'}
+                {isLoading ? 'Saving…' : (resultId ? 'Update Result' : 'Save Result')}
               </Button>
             </DialogFooter>
           </form>

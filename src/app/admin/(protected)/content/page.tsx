@@ -7,14 +7,22 @@ import { Settings, Edit, Eye, EyeOff, Save, Plus } from 'lucide-react'
 import { ContentEditor } from '@/components/admin/content/ContentEditor'
 import { SectionManager } from '@/components/admin/content/SectionManager'
 import { getCurrentUser } from '@/lib/auth-server'
+import { prisma } from '@/lib/prisma'
 
 async function getContentStats() {
-  // Mock data - will be replaced with actual database queries
+  // Real data - prisma counts
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const [totalSections, activeSections, totalContentBlocks, recentUpdates] = await Promise.all([
+    prisma.section.count(),
+    prisma.section.count({ where: { isEnabled: true } }),
+    prisma.contentBlock.count(),
+    prisma.contentBlock.count({ where: { updatedAt: { gte: since } } }),
+  ])
   return {
-    totalSections: 23,
-    activeSections: 18,
-    totalContentBlocks: 45,
-    recentUpdates: 12,
+    totalSections,
+    activeSections,
+    totalContentBlocks,
+    recentUpdates,
   }
 }
 
@@ -45,54 +53,54 @@ export default async function ContentPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Sections</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalSections}</div>
-            <p className="text-xs text-muted-foreground">
-              {stats.activeSections} active sections
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Content Blocks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalContentBlocks}</div>
-            <p className="text-xs text-muted-foreground">
-              Text, HTML, and media blocks
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Recent Updates</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.recentUpdates}</div>
-            <p className="text-xs text-muted-foreground">
-              Changes this week
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {Math.round((stats.activeSections / stats.totalSections) * 100)}%
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Sections currently enabled
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+         <Card>
+           <CardHeader className="pb-2">
+             <CardTitle className="text-sm font-medium">Total Sections</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold">{stats.totalSections}</div>
+             <p className="text-xs text-muted-foreground">
+               {stats.activeSections} active sections
+             </p>
+           </CardContent>
+         </Card>
+         <Card>
+           <CardHeader className="pb-2">
+             <CardTitle className="text-sm font-medium">Content Blocks</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold">{stats.totalContentBlocks}</div>
+             <p className="text-xs text-muted-foreground">
+               Text, HTML, and media blocks
+             </p>
+           </CardContent>
+         </Card>
+         <Card>
+           <CardHeader className="pb-2">
+             <CardTitle className="text-sm font-medium">Recent Updates</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold text-green-600">{stats.recentUpdates}</div>
+             <p className="text-xs text-muted-foreground">
+               Changes this week
+             </p>
+           </CardContent>
+         </Card>
+         <Card>
+           <CardHeader className="pb-2">
+             <CardTitle className="text-sm font-medium">Active Rate</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold text-blue-600">
+               {Math.round((stats.activeSections / stats.totalSections) * 100)}%
+             </div>
+             <p className="text-xs text-muted-foreground">
+               Sections currently enabled
+             </p>
+           </CardContent>
+         </Card>
+       </div>
 
       {/* Content Management Tabs */}
       <Tabs defaultValue="sections" className="space-y-4">

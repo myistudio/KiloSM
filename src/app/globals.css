@@ -120,3 +120,30 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  /* Light text utility for dark backgrounds */
+  .text-on-dark {
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  /* Ensure disclaimer content renders light text on dark cards */
+  .disclaimer-content,
+  .disclaimer-content p,
+  .disclaimer-content li,
+  .disclaimer-content span,
+  .disclaimer-content div,
+  .disclaimer-content h1,
+  .disclaimer-content h2,
+  .disclaimer-content h3,
+  .disclaimer-content h4,
+  .disclaimer-content h5,
+  .disclaimer-content h6 {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .disclaimer-content a {
+    color: rgba(147, 197, 253, 0.95);
+    text-decoration: underline;
+  }
+}

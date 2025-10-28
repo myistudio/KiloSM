@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-server'
-import { ContentBlockType, SectionType, MarketStatus, DayOfWeek } from '@/generated/prisma'
+import { DayOfWeek, MarketStatus, SectionType, ContentBlockType } from '@/generated/prisma'
+import { redis } from '@/lib/redis'
 
 // List markets
 export async function GET() {
@@ -22,6 +23,11 @@ export async function GET() {
         sortOrder: true,
         createdAt: true,
         updatedAt: true,
+        // Highlight fields
+        isHighlighted: true,
+        highlightMessage: true,
+        highlightActionText: true,
+        highlightActionUrl: true,
       },
     })
     return NextResponse.json({ markets })
@@ -47,6 +53,11 @@ export async function POST(req: Request) {
       descriptionLink,
       jodiChartLink,
       panelChartLink,
+      // optional highlight config on create
+      isHighlighted,
+      highlightMessage,
+      highlightActionText,
+      highlightActionUrl,
     } = body as {
       name: string
       displayName: string
@@ -58,6 +69,10 @@ export async function POST(req: Request) {
       descriptionLink?: string
       jodiChartLink?: string
       panelChartLink?: string
+      isHighlighted?: boolean
+      highlightMessage?: string
+      highlightActionText?: string
+      highlightActionUrl?: string
     }
 
     if (!name || !displayName || !openTime || !closeTime || !operatingDays?.length) {
@@ -75,6 +90,11 @@ export async function POST(req: Request) {
         operatingDays: operatingDays.map((d) => DayOfWeek[d]),
         isActive,
         sortOrder,
+        // highlight defaults
+        isHighlighted: !!isHighlighted,
+        highlightMessage: highlightMessage || null,
+        highlightActionText: highlightActionText || null,
+        highlightActionUrl: highlightActionUrl || null,
       },
     })
 
@@ -128,6 +148,9 @@ export async function POST(req: Request) {
       )
     }
 
+    // Notify live results stream via Redis version bump (markets changed)
+    try { await redis.incr('live_markets_version') } catch {}
+
     return NextResponse.json({ market }, { status: 201 })
   } catch (error: any) {
     console.error('Error creating market:', error)
@@ -150,6 +173,11 @@ export async function PATCH(req: Request) {
       operatingDays,
       isActive,
       sortOrder,
+      // highlight updates
+      isHighlighted,
+      highlightMessage,
+      highlightActionText,
+      highlightActionUrl,
     } = body as {
       id: string
       name?: string
@@ -159,6 +187,10 @@ export async function PATCH(req: Request) {
       operatingDays?: (keyof typeof DayOfWeek)[]
       isActive?: boolean
       sortOrder?: number
+      isHighlighted?: boolean
+      highlightMessage?: string
+      highlightActionText?: string
+      highlightActionUrl?: string
     }
 
     if (!id) {
@@ -177,8 +209,16 @@ export async function PATCH(req: Request) {
         isActive,
         status: typeof isActive === 'boolean' ? (isActive ? MarketStatus.ACTIVE : MarketStatus.INACTIVE) : undefined,
         sortOrder,
+        // highlight fields
+        isHighlighted,
+        highlightMessage,
+        highlightActionText,
+        highlightActionUrl,
       },
     })
+
+    // Notify live results stream via Redis version bump (markets changed)
+    try { await redis.incr('live_markets_version') } catch {}
 
     return NextResponse.json({ market: updated })
   } catch (error) {
@@ -198,6 +238,10 @@ export async function DELETE(req: Request) {
     }
 
     await prisma.market.delete({ where: { id } })
+
+    // Notify live results stream via Redis version bump (markets changed)
+    try { await redis.incr('live_markets_version') } catch {}
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting market:', error)

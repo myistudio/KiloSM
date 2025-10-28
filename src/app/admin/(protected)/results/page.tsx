@@ -7,15 +7,88 @@ import { ResultEntryForm } from '@/components/admin/results/ResultEntryForm'
 import { BulkResultEntry } from '@/components/admin/results/BulkResultEntry'
 import { ResultsTable } from '@/components/admin/results/ResultsTable'
 import { getCurrentUser } from '@/lib/auth-server'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { Calendar as RangeCalendar } from '@/components/ui/calendar'
+import { HistoryRangePicker } from '@/components/admin/results/HistoryRangePicker'
+import { ResultsManager } from '@/components/admin/results/ResultsManager'
+import { prisma } from '@/lib/prisma'
+import { headers } from 'next/headers'
+
+function formatDateInput(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 async function getResultsStats() {
-  // Mock data - will be replaced with actual database queries
+  // Real data implementation
+  // Totals
+  const totalMarkets = await prisma.market.count()
+
+  const hdrs = await headers()
+  const cookie = hdrs.get('cookie') || ''
+  const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || 'localhost:3001'
+  const proto = hdrs.get('x-forwarded-proto') || 'http'
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`)
+
+  // Fetch today and pending results via admin API (same logic as tables) and include session cookie
+  const [todayResp, pendingResp] = await Promise.all([
+    fetch(`${origin}/api/admin/results?filter=today`, { cache: 'no-store', headers: { cookie } }),
+    fetch(`${origin}/api/admin/results?filter=pending`, { cache: 'no-store', headers: { cookie } }),
+  ])
+
+  const todayJson = todayResp && todayResp.ok ? await todayResp.json() : { results: [] }
+  const pendingJson = pendingResp && pendingResp.ok ? await pendingResp.json() : { results: [] }
+
+  const todayResults = Array.isArray(todayJson.results) ? todayJson.results.length : 0
+  const pendingResults = Array.isArray(pendingJson.results) ? pendingJson.results.length : 0
+
+  // Compute next result (IST)
+  const fmtDay = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long' })
+  const dayEnum = fmtDay.format(new Date()).toUpperCase()
+
+  const activeToday = await prisma.market.findMany({
+    where: { isActive: true, operatingDays: { has: dayEnum as any } },
+    select: { name: true, displayName: true, resultTime: true, closeTime: true, sortOrder: true },
+    orderBy: { sortOrder: 'asc' },
+  })
+
+  const fmtTime = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' })
+  const nowStr = fmtTime.format(new Date())
+  const [h, m] = nowStr.split(':').map((s) => parseInt(s, 10))
+  const nowMin = h * 60 + m
+  const toMin = (hhmm?: string | null) => {
+    if (!hhmm) return Number.POSITIVE_INFINITY
+    const [hh, mm] = hhmm.split(':').map((s) => parseInt(s, 10))
+    return hh * 60 + mm
+  }
+
+  let nextMarket = ''
+  let nextResultTime = ''
+
+  const upcoming = activeToday
+    .map((m) => ({ m, rm: toMin(m.resultTime), cm: toMin(m.closeTime) }))
+    .filter((x) => x.rm > nowMin || x.cm > nowMin)
+    .sort((a, b) => (Math.min(a.rm, a.cm) - Math.min(b.rm, b.cm)))
+
+  if (upcoming.length > 0) {
+    const pick = upcoming[0]
+    nextMarket = (pick.m.displayName || pick.m.name || '').toUpperCase()
+    const timeStr = pick.m.resultTime || pick.m.closeTime || ''
+    nextResultTime = timeStr
+  } else if (activeToday.length > 0) {
+    const pick = activeToday[0]
+    nextMarket = (pick.displayName || pick.name || '').toUpperCase()
+    nextResultTime = pick.resultTime || pick.closeTime || ''
+  }
+
   return {
-    todayResults: 8,
-    pendingResults: 3,
-    totalMarkets: 12,
-    nextResultTime: '14:30',
-    nextMarket: 'KALYAN'
+    todayResults,
+    pendingResults,
+    totalMarkets,
+    nextResultTime,
+    nextMarket,
   }
 }
 
@@ -40,17 +113,11 @@ export default async function ResultsPage() {
               Bulk Entry
             </Button>
           </BulkResultEntry>
-          <ResultEntryForm>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Result
-            </Button>
-          </ResultEntryForm>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Today's Results</CardTitle>
@@ -115,58 +182,10 @@ export default async function ResultsPage() {
         </CardContent>
       </Card>
 
-      {/* Results Management Tabs */}
-      <Tabs defaultValue="today" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="today">Today's Results</TabsTrigger>
-          <TabsTrigger value="pending">Pending Results</TabsTrigger>
-          <TabsTrigger value="history">Result History</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="today" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Today's Results</CardTitle>
-              <CardDescription>
-                <span suppressHydrationWarning>
-                  Results entered for {new Date().toLocaleDateString()}
-                </span>
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResultsTable filter="today" />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="pending" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Results</CardTitle>
-              <CardDescription>
-                Markets awaiting result entry
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResultsTable filter="pending" />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="history" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Result History</CardTitle>
-              <CardDescription>
-                Historical results and trends
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResultsTable filter="history" />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Redesigned Results Manager */}
+      <ResultsManager />
     </div>
   )
 }
+
+// Remove inline client component at the bottom of the file

@@ -5,14 +5,18 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus } from 'lucide-react'
 import { getCurrentUser } from '@/lib/auth-server'
-
-async function getMarkets() {
-  // This will be implemented with actual database queries
-  return []
-}
+import { prisma } from '@/lib/prisma'
 
 export default async function MarketsPage() {
   const user = await getCurrentUser()
+
+  // Real counts from database
+  const [totalMarkets, activeMarkets] = await Promise.all([
+    prisma.market.count(),
+    prisma.market.count({ where: { isActive: true } }),
+  ])
+
+  const activePercent = totalMarkets > 0 ? Math.round((activeMarkets / totalMarkets) * 100) : 0
 
   return (
     <div className="space-y-6">
@@ -33,15 +37,15 @@ export default async function MarketsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Total Markets</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12</div>
+            <div className="text-2xl font-bold">{totalMarkets}</div>
             <p className="text-xs text-muted-foreground">
-              +2 from last month
+              Overall markets in system
             </p>
           </CardContent>
         </Card>
@@ -50,34 +54,13 @@ export default async function MarketsPage() {
             <CardTitle className="text-sm font-medium">Active Markets</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">10</div>
+            <div className="text-2xl font-bold text-green-600">{activeMarkets}</div>
             <p className="text-xs text-muted-foreground">
-              83% of total markets
+              {activePercent}% of total markets
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Today's Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">8</div>
-            <p className="text-xs text-muted-foreground">
-              Results entered today
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">3</div>
-            <p className="text-xs text-muted-foreground">
-              Awaiting entry
-            </p>
-          </CardContent>
-        </Card>
+        {/* Removed Today's Results and Pending Results cards per requirements */}
       </div>
 
       {/* Markets Table */}

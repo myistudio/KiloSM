@@ -1,5 +1,5 @@
 import { PrismaClient } from '../src/generated/prisma'
-import { UserRole, MarketStatus, SectionType, ContentBlockType, ThemeComponent, AccountStatus, DayOfWeek } from '../src/generated/prisma'
+import { UserRole, MarketStatus, SectionType, ContentBlockType, ThemeComponent, AccountStatus, DayOfWeek, ResultFormat } from '../src/generated/prisma'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -56,11 +56,38 @@ async function main() {
     { type: SectionType.DISCLAIMER, name: 'Disclaimer', title: 'Disclaimer', sortOrder: 23 },
   ]
 
+  // Custom colors for each section's top bar and text
+  const sectionColors: Record<SectionType, { showTopBar: boolean; headerBgColor: string; headingColor: string; textColor: string; backgroundColor: string }> = {
+    [SectionType.LIVE_RESULTS]: { showTopBar: true, headerBgColor: '#0f766e', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.LATEST_RESULTS]: { showTopBar: true, headerBgColor: '#92400e', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.NOTICE_BOARD]: { showTopBar: true, headerBgColor: '#7f1d1d', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.INFO_MARQUEE]: { showTopBar: true, headerBgColor: '#a16207', headingColor: '#ffffff', textColor: '#fde68a', backgroundColor: '#0f172a' },
+    [SectionType.ASTROLOGY_LUCK]: { showTopBar: true, headerBgColor: '#6d28d9', headingColor: '#ffffff', textColor: '#e9d5ff', backgroundColor: '#0f172a' },
+    [SectionType.MARKET_TIMETABLE]: { showTopBar: true, headerBgColor: '#1e40af', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.STARLINE_GAMES]: { showTopBar: true, headerBgColor: '#b45309', headingColor: '#ffffff', textColor: '#ffedd5', backgroundColor: '#0f172a' },
+    [SectionType.BAZAR_36]: { showTopBar: true, headerBgColor: '#065f46', headingColor: '#ffffff', textColor: '#d1fae5', backgroundColor: '#0f172a' },
+    [SectionType.BAZAR_48]: { showTopBar: true, headerBgColor: '#7c2d12', headingColor: '#ffffff', textColor: '#ffedd5', backgroundColor: '#0f172a' },
+    [SectionType.LINK_SECTION_1]: { showTopBar: true, headerBgColor: '#6d28d9', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.LINK_SECTION_2]: { showTopBar: true, headerBgColor: '#a21caf', headingColor: '#ffffff', textColor: '#f5d0fe', backgroundColor: '#0f172a' },
+    [SectionType.KEYWORD_SEO]: { showTopBar: true, headerBgColor: '#0891b2', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.ONLINE_PLAY]: { showTopBar: true, headerBgColor: '#059669', headingColor: '#ffffff', textColor: '#d1fae5', backgroundColor: '#0f172a' },
+    [SectionType.MARKET_ARTICLES]: { showTopBar: true, headerBgColor: '#0369a1', headingColor: '#ffffff', textColor: '#e0f2fe', backgroundColor: '#0f172a' },
+    [SectionType.USER_CONTENT]: { showTopBar: true, headerBgColor: '#334155', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.CHARTS]: { showTopBar: true, headerBgColor: '#1e293b', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.QA_SECTION]: { showTopBar: true, headerBgColor: '#7c3aed', headingColor: '#ffffff', textColor: '#ede9fe', backgroundColor: '#0f172a' },
+    [SectionType.FAQ]: { showTopBar: true, headerBgColor: '#475569', headingColor: '#ffffff', textColor: '#e2e8f0', backgroundColor: '#0f172a' },
+    [SectionType.DISCLAIMER]: { showTopBar: true, headerBgColor: '#111827', headingColor: '#ffffff', textColor: '#9ca3af', backgroundColor: '#0f172a' },
+    [SectionType.WEEKLY_TIPS_PATTI]: { showTopBar: true, headerBgColor: '#6b21a8', headingColor: '#ffffff', textColor: '#e9d5ff', backgroundColor: '#0f172a' },
+    [SectionType.WEEKLY_TIPS_LINE]: { showTopBar: true, headerBgColor: '#4c1d95', headingColor: '#ffffff', textColor: '#ddd6fe', backgroundColor: '#0f172a' },
+    [SectionType.WEEKLY_TIPS_JODI]: { showTopBar: true, headerBgColor: '#5b21b6', headingColor: '#ffffff', textColor: '#e9d5ff', backgroundColor: '#0f172a' },
+    [SectionType.FREE_GAME_ZONE]: { showTopBar: true, headerBgColor: '#0ea5e9', headingColor: '#ffffff', textColor: '#e0f2fe', backgroundColor: '#0f172a' },
+  }
+
   for (const sectionData of sectionsData) {
     await prisma.section.upsert({
       where: { type: sectionData.type },
-      update: {},
-      create: sectionData,
+      update: { settings: sectionColors[sectionData.type] },
+      create: { ...sectionData, settings: sectionColors[sectionData.type] },
     })
   }
 
@@ -101,6 +128,9 @@ async function main() {
       resultTime: '13:30',
       operatingDays: [DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY],
       sortOrder: 1,
+      // Highlight Kalyan with a demo message
+      isHighlighted: true,
+      highlightMessage: 'Demo message',
     },
     {
       name: 'MILAN_DAY',
@@ -125,15 +155,75 @@ async function main() {
   for (const marketData of marketsData) {
     await prisma.market.upsert({
       where: { name: marketData.name },
-      update: {},
+      update: marketData.name === 'KALYAN'
+        ? {
+            isHighlighted: true,
+            highlightMessage: 'Demo message',
+          }
+        : {},
       create: marketData,
     })
   }
 
   console.log('✅ Created sample markets')
 
+  // Seed 7 days of dummy results for all markets
+  const allMarkets = await prisma.market.findMany()
+  const dowMap: DayOfWeek[] = [
+    DayOfWeek.SUNDAY,
+    DayOfWeek.MONDAY,
+    DayOfWeek.TUESDAY,
+    DayOfWeek.WEDNESDAY,
+    DayOfWeek.THURSDAY,
+    DayOfWeek.FRIDAY,
+    DayOfWeek.SATURDAY,
+  ]
+
+  function randTriple() {
+    return String(Math.floor(Math.random() * 1000)).padStart(3, '0')
+  }
+  function sumDigitsMod10(triple: string) {
+    const s = triple.split('').reduce((acc, d) => acc + Number(d), 0)
+    return String(s % 10)
+  }
+  function panna(): string {
+    const t = randTriple()
+    const s = sumDigitsMod10(t)
+    return `${t}-${s}`
+  }
+
+  for (const market of allMarkets) {
+    for (let i = 0; i < 7; i++) {
+      const d = new Date()
+      d.setHours(0, 0, 0, 0)
+      d.setDate(d.getDate() - i)
+      const dow = dowMap[d.getDay()]
+      if (!market.operatingDays || !market.operatingDays.includes(dow)) continue
+      const openRes = panna()
+      const closeRes = panna()
+      await prisma.marketResult.upsert({
+        where: {
+          marketId_date: {
+            marketId: market.id,
+            date: d,
+          },
+        },
+        update: {},
+        create: {
+          marketId: market.id,
+          date: d,
+          openResult: openRes,
+          closeResult: closeRes,
+          status: ResultFormat.SINGLE,
+          isPublished: true,
+        },
+      })
+    }
+  }
+  console.log('✅ Seeded 7 days of results for all markets')
+
   // Create sample content blocks for key sections
-  const contentBlocksData = [
+  const contentBlocksData: Array<{ sectionType: SectionType; key: string; title?: string; content: string; type: ContentBlockType; metadata?: any }> = [
     {
       sectionType: SectionType.KEYWORD_SEO,
       key: 'main_keywords',
@@ -155,9 +245,72 @@ async function main() {
       content: 'Satta Matka is a popular lottery game that originated in India.',
       type: ContentBlockType.TEXT,
     },
+    // User pages: Privacy Policy, Terms & Conditions, Contact Us
+    {
+      sectionType: SectionType.USER_CONTENT,
+      key: 'PRIVACY_POLICY_1',
+      title: 'Privacy Overview',
+      content: '<p>We value your privacy and explain what data we collect and how we use it.</p>',
+      type: ContentBlockType.HTML,
+    },
+    {
+      sectionType: SectionType.USER_CONTENT,
+      key: 'TERMS_AND_CONDITIONS_1',
+      title: 'Terms of Use',
+      content: '<p>By using this website, you agree to follow our terms of service and rules.</p>',
+      type: ContentBlockType.HTML,
+    },
+    {
+      sectionType: SectionType.USER_CONTENT,
+      key: 'CONTACT_US_1',
+      title: 'Contact Details',
+      content: 'Reach us via the details below.',
+      type: ContentBlockType.TEXT,
+      metadata: { email: 'support@sattamatka.com', phone: '+91-9876543210', url: 'https://sattamatka.com' },
+    },
+    // Homepage hero defaults
+    {
+      sectionType: SectionType.USER_CONTENT,
+      key: 'HOME_HERO_TITLE',
+      title: 'Homepage Hero Title',
+      content: 'Fastest Live Results',
+      type: ContentBlockType.TEXT,
+    },
+    {
+      sectionType: SectionType.USER_CONTENT,
+      key: 'HOME_HERO_SUBTITLE',
+      title: 'Homepage Hero Subtitle',
+      content: 'Get instant Satta Matka results, predictions, and tips',
+      type: ContentBlockType.TEXT,
+    },
   ]
 
-  for (const blockData of contentBlocksData) {
+  // Additional demo content for various sections
+  const sampleBlocks: Array<{ sectionType: SectionType; key: string; title?: string; content: string; type: ContentBlockType }> = [
+    { sectionType: SectionType.NOTICE_BOARD, key: 'notice_1', title: 'Server Upgrade', content: 'We will perform a scheduled upgrade tonight at 11:30 PM.', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.NOTICE_BOARD, key: 'notice_2', title: 'New Features', content: 'Live chat has been added to the website.', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.INFO_MARQUEE, key: 'marquee_1', title: 'Important', content: 'Play responsibly • Latest results updated in real-time • Follow us on Telegram', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.ASTROLOGY_LUCK, key: 'luck_numbers', title: 'Lucky Numbers', content: JSON.stringify(['12', '34', '56', '78', '90']), type: ContentBlockType.JSON },
+    { sectionType: SectionType.MARKET_TIMETABLE, key: 'timetable_1', title: 'Daily Schedule', content: JSON.stringify([{ name:'Kalyan Morning', open:'11:30', close:'12:30' }, { name:'Milan Day', open:'15:00', close:'17:00' }, { name:'Rajdhani Night', open:'21:30', close:'23:30' }]), type: ContentBlockType.JSON },
+    { sectionType: SectionType.LINK_SECTION_1, key: 'link_1', title: 'How to Play', content: 'https://example.com/how-to-play', type: ContentBlockType.LINK },
+    { sectionType: SectionType.LINK_SECTION_1, key: 'link_2', title: 'Responsible Gaming', content: 'https://example.com/responsible-gaming', type: ContentBlockType.LINK },
+    { sectionType: SectionType.LINK_SECTION_2, key: 'link_3', title: 'Market Glossary', content: 'https://example.com/market-glossary', type: ContentBlockType.LINK },
+    { sectionType: SectionType.MARKET_ARTICLES, key: 'article_1', title: 'Understanding Patti', content: 'Patti is a three-digit number with its sum used as the last digit...', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.QA_SECTION, key: 'qa_1', title: 'How to read results?', content: JSON.stringify({ q: 'How to read results?', a: 'Results are shown as Open (AAA-B) and Close (CCC-D). Combined jodi is BD.' }), type: ContentBlockType.JSON },
+    { sectionType: SectionType.USER_CONTENT, key: 'user_post_1', title: 'Tips from Community', content: 'Always manage bankroll and avoid chasing losses.', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.ONLINE_PLAY, key: 'online_play_1', title: 'Play Safely', content: 'Use verified platforms and avoid sharing OTPs.', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.STARLINE_GAMES, key: 'starline_schedule', title: 'Starline Schedule', content: JSON.stringify([{ name: 'Starline 10:00', open: '10:00', close: '10:30' }, { name: 'Starline 11:00', open: '11:00', close: '11:30' }]), type: ContentBlockType.JSON },
+    { sectionType: SectionType.BAZAR_36, key: 'bazar36_schedule', title: '36 Bazar', content: JSON.stringify([{ name: 'Bazar 36 A', open: '12:00', close: '12:30' }]), type: ContentBlockType.JSON },
+    { sectionType: SectionType.BAZAR_48, key: 'bazar48_schedule', title: '48 Bazar', content: JSON.stringify([{ name: 'Bazar 48 X', open: '14:00', close: '14:30' }]), type: ContentBlockType.JSON },
+    { sectionType: SectionType.WEEKLY_TIPS_PATTI, key: 'weekly_patti', title: 'Weekly Patti Tips', content: '127, 389, 456, 780', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.WEEKLY_TIPS_LINE, key: 'weekly_line', title: 'Weekly Line Tips', content: '12-34-56-78', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.WEEKLY_TIPS_JODI, key: 'weekly_jodi', title: 'Weekly Jodi Tips', content: '12, 23, 34, 45, 56', type: ContentBlockType.TEXT },
+    { sectionType: SectionType.FREE_GAME_ZONE, key: 'free_game_zone_1', title: 'Free Games', content: 'Try your luck with free games.', type: ContentBlockType.TEXT },
+  ]
+
+  const allBlockData: Array<{ sectionType: SectionType; key: string; title?: string; content: string; type: ContentBlockType; metadata?: any }> = [...contentBlocksData, ...sampleBlocks]
+
+  for (const blockData of allBlockData) {
     const section = await prisma.section.findUnique({
       where: { type: blockData.sectionType }
     })
@@ -177,12 +330,34 @@ async function main() {
           key: blockData.key,
           title: blockData.title,
           content: blockData.content,
+          metadata: blockData.metadata,
         },
       })
     }
   }
 
-  console.log('✅ Created sample content blocks')
+  // Seed dummy content for all sections
+  const allSections = await prisma.section.findMany()
+  for (const section of allSections) {
+    await prisma.contentBlock.upsert({
+      where: {
+        sectionId_key: {
+          sectionId: section.id,
+          key: 'demo_content',
+        },
+      },
+      update: {},
+      create: {
+        sectionId: section.id,
+        type: ContentBlockType.TEXT,
+        key: 'demo_content',
+        title: `${section.title} Demo Content`,
+        content: `This is demo content for the ${section.name} section.`,
+        sortOrder: 1,
+      },
+    })
+  }
+  console.log('✅ Seeded dummy content for all sections')
   console.log('🎉 Database seeding completed!')
 }
 

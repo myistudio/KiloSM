@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-server'
-import { ContentBlockType, SectionType } from '@/generated/prisma'
+import { ContentBlockType, SectionType, Prisma } from '@/generated/prisma'
 
 // List content blocks, optionally filtered by sectionType
 export async function GET(req: Request) {
@@ -12,9 +12,20 @@ export async function GET(req: Request) {
 
   try {
     if (sectionTypeParam) {
-      const section = await prisma.section.findUnique({
-        where: { type: SectionType[sectionTypeParam] },
-      })
+      let section = await prisma.section.findUnique({ where: { type: SectionType[sectionTypeParam] } })
+
+      // Auto-create USER_CONTENT section if missing to avoid management errors
+      if (!section && sectionTypeParam === 'USER_CONTENT') {
+        section = await prisma.section.create({
+          data: {
+            type: SectionType.USER_CONTENT,
+            name: 'User Content',
+            title: 'User Content Blocks',
+            isEnabled: true,
+            sortOrder: 999,
+          },
+        })
+      }
 
       if (!section) {
         return NextResponse.json({ error: `Section ${sectionTypeParam} not found` }, { status: 404 })
@@ -75,9 +86,19 @@ export async function POST(req: Request) {
     // Resolve sectionId from sectionType if provided
     let resolvedSectionId = sectionId || null
     if (!resolvedSectionId && sectionType) {
-      const section = await prisma.section.findUnique({
-        where: { type: SectionType[sectionType] },
-      })
+      let section = await prisma.section.findUnique({ where: { type: SectionType[sectionType] } })
+      // Auto-create USER_CONTENT when missing to enable admin saves without manual seeding
+      if (!section && sectionType === 'USER_CONTENT') {
+        section = await prisma.section.create({
+          data: {
+            type: SectionType.USER_CONTENT,
+            name: 'User Content',
+            title: 'User Content Blocks',
+            isEnabled: true,
+            sortOrder: 999,
+          },
+        })
+      }
       if (!section) {
         return NextResponse.json({ error: `Section ${sectionType} not found` }, { status: 404 })
       }
@@ -87,6 +108,10 @@ export async function POST(req: Request) {
     if (!resolvedSectionId) {
       return NextResponse.json({ error: 'sectionId or sectionType is required' }, { status: 400 })
     }
+
+    // Ensure metadata conforms to Prisma JSON input types
+    const metaPayload: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined =
+      metadata === null ? Prisma.JsonNull : (metadata as unknown as Prisma.InputJsonValue)
 
     const upserted = await prisma.contentBlock.upsert({
       where: {
@@ -99,7 +124,7 @@ export async function POST(req: Request) {
         title: title ?? null,
         content,
         type: ContentBlockType[type],
-        metadata: metadata ?? null,
+        metadata: metaPayload,
         sortOrder: sortOrder ?? 0,
         isActive: isActive ?? true,
       },
@@ -109,7 +134,7 @@ export async function POST(req: Request) {
         title: title ?? null,
         content,
         type: ContentBlockType[type],
-        metadata: metadata ?? null,
+        metadata: metaPayload,
         sortOrder: sortOrder ?? 0,
         isActive: isActive ?? true,
       },
@@ -119,5 +144,52 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Error saving content block:', error)
     return NextResponse.json({ error: 'Failed to save content block' }, { status: 500 })
+  }
+}
+
+// Delete a content block by id or by (sectionId + key)
+export async function DELETE(req: Request) {
+  await requireAdmin()
+
+  try {
+    const contentType = req.headers.get('content-type') || ''
+    let id: string | undefined
+    let sectionId: string | undefined
+    let key: string | undefined
+
+    if (contentType.includes('application/json')) {
+      const body = await req.json().catch(() => ({}))
+      id = body.id
+      sectionId = body.sectionId
+      key = body.key
+    } else {
+      const { searchParams } = new URL(req.url)
+      id = searchParams.get('id') || undefined
+      sectionId = searchParams.get('sectionId') || undefined
+      key = searchParams.get('key') || undefined
+    }
+
+    if (id) {
+      const deleted = await prisma.contentBlock.delete({ where: { id } })
+      return NextResponse.json({ contentBlock: deleted }, { status: 200 })
+    }
+
+    if (sectionId && key) {
+      const existing = await prisma.contentBlock.findUnique({
+        where: { sectionId_key: { sectionId, key } },
+      })
+
+      if (!existing) {
+        return NextResponse.json({ error: 'Content block not found' }, { status: 404 })
+      }
+
+      const deleted = await prisma.contentBlock.delete({ where: { id: existing.id } })
+      return NextResponse.json({ contentBlock: deleted }, { status: 200 })
+    }
+
+    return NextResponse.json({ error: 'id or sectionId+key required' }, { status: 400 })
+  } catch (error) {
+    console.error('Error deleting content block:', error)
+    return NextResponse.json({ error: 'Failed to delete content block' }, { status: 500 })
   }
 }
